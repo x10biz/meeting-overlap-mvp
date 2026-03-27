@@ -45,6 +45,7 @@ def read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
 
 
 def ensure_db() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(
         """
