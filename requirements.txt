@@ -1,0 +1,2 @@
+# Stdlib-only app. File kept so Railway/Nixpacks detects Python cleanly.
+

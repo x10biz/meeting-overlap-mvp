@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Find a Time</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <p class="eyebrow">DG Outreach MVP</p>
+        <h1>Find the best meeting time across time zones.</h1>
+        <p class="hero-copy">
+          Create an event, share one link, and let everyone add their available
+          time windows. The page highlights the strongest overlap automatically.
+        </p>
+      </header>
+
+      <main id="app"></main>
+    </div>
+
+    <template id="landing-template">
+      <section class="panel two-column">
+        <div>
+          <h2>Create event</h2>
+          <p class="muted">
+            Start with a name and a date range. Everyone else will use the same
+            link and add their availability.
+          </p>
+          <form id="create-event-form" class="stack-form">
+            <label>
+              <span>Event name</span>
+              <input
+                type="text"
+                name="title"
+                placeholder="Team sync"
+                maxlength="100"
+                required
+              />
+            </label>
+            <label>
+              <span>Start date</span>
+              <input type="date" name="startDate" required />
+            </label>
+            <label>
+              <span>End date</span>
+              <input type="date" name="endDate" required />
+            </label>
+            <button type="submit" class="primary-button">Create event</button>
+          </form>
+        </div>
+        <div class="feature-card">
+          <h3>What this MVP already does</h3>
+          <ul class="clean-list">
+            <li>Creates a permanent event link with no auth</li>
+            <li>Lets each person add multiple availability windows</li>
+            <li>Stores everything in SQLite</li>
+            <li>Builds a shared overlap heatmap in 30-minute slots</li>
+            <li>Highlights the top matching meeting windows</li>
+          </ul>
+        </div>
+      </section>
+    </template>
+
+    <template id="event-template">
+      <section class="panel event-layout">
+        <div class="event-header">
+          <div>
+            <p class="eyebrow" id="event-range"></p>
+            <h2 id="event-title"></h2>
+          </div>
+          <button id="copy-link-button" class="secondary-button">Copy link</button>
+        </div>
+
+        <section class="summary-grid">
+          <article class="panel inset-panel">
+            <h3>Participants</h3>
+            <p class="muted" id="participant-count"></p>
+            <div id="participant-list" class="participant-list"></div>
+          </article>
+
+          <article class="panel inset-panel">
+            <h3>Best overlap</h3>
+            <p class="muted">
+              Times below are shown in your selected display timezone.
+            </p>
+            <div class="toolbar">
+              <label class="inline-field">
+                <span>Show in</span>
+                <select id="display-timezone"></select>
+              </label>
+            </div>
+            <div id="best-slots" class="best-slots"></div>
+          </article>
+        </section>
+
+        <section class="panel inset-panel">
+          <div class="section-head">
+            <div>
+              <h3>Add yourself</h3>
+              <p class="muted">
+                Add your name, pick your timezone, and enter as many available
+                windows as you need.
+              </p>
+            </div>
+          </div>
+          <form id="participant-form" class="stack-form">
+            <label>
+              <span>Your name</span>
+              <input type="text" name="name" placeholder="Alex" maxlength="80" required />
+            </label>
+
+            <label>
+              <span>Your timezone</span>
+              <select name="timezone" id="participant-timezone" required></select>
+            </label>
+
+            <div class="slot-editor">
+              <div class="section-head">
+                <h4>Availability slots</h4>
+                <button type="button" id="add-slot-button" class="secondary-button small-button">
+                  Add slot
+                </button>
+              </div>
+              <div id="slot-list" class="slot-list"></div>
+            </div>
+
+            <button type="submit" class="primary-button">Save availability</button>
+          </form>
+        </section>
+
+        <section class="panel inset-panel">
+          <div class="section-head">
+            <div>
+              <h3>Availability heatmap</h3>
+              <p class="muted">
+                Darker green means more people are available in that 30-minute slot.
+              </p>
+            </div>
+          </div>
+          <div id="heatmap" class="heatmap-wrap"></div>
+        </section>
+      </section>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
