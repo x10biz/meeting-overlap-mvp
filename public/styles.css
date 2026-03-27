@@ -89,6 +89,12 @@ body {
   gap: 16px;
 }
 
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 label,
 .inline-field {
   display: grid;
@@ -292,7 +298,8 @@ button:hover {
 
   .two-column,
   .summary-grid,
-  .slot-row {
+  .slot-row,
+  .field-grid {
     grid-template-columns: 1fr;
   }
 

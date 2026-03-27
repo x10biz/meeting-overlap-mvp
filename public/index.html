@@ -39,13 +39,29 @@
                 required
               />
             </label>
+            <div class="field-grid">
+              <label>
+                <span>Start date</span>
+                <input type="date" name="startDate" required />
+              </label>
+              <label>
+                <span>Start time</span>
+                <input type="time" name="startTime" step="900" required />
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>End date</span>
+                <input type="date" name="endDate" required />
+              </label>
+              <label>
+                <span>End time</span>
+                <input type="time" name="endTime" step="900" required />
+              </label>
+            </div>
             <label>
-              <span>Start date</span>
-              <input type="date" name="startDate" required />
-            </label>
-            <label>
-              <span>End date</span>
-              <input type="date" name="endDate" required />
+              <span>Event timezone</span>
+              <select name="eventTimezone" id="event-timezone" required></select>
             </label>
             <button type="submit" class="primary-button">Create event</button>
           </form>
@@ -69,6 +85,7 @@
           <div>
             <p class="eyebrow" id="event-range"></p>
             <h2 id="event-title"></h2>
+            <p class="muted" id="event-timezone-label"></p>
           </div>
           <button id="copy-link-button" class="secondary-button">Copy link</button>
         </div>

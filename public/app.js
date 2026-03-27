@@ -57,6 +57,17 @@ function formatDateOnly(dateIso) {
   });
 }
 
+function formatDateTimeInTimezone(dateIso, timeZone) {
+  return new Intl.DateTimeFormat("en", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(dateIso));
+}
+
 function showStatus(message) {
   state.statusMessage = message;
   render();
@@ -81,6 +92,8 @@ function getUpcomingWeekRange() {
   return {
     startDate: start.toISOString().slice(0, 10),
     endDate: end.toISOString().slice(0, 10),
+    startTime: "09:00",
+    endTime: "17:00",
   };
 }
 
@@ -92,6 +105,11 @@ function renderLanding() {
   const defaults = getUpcomingWeekRange();
   form.elements.startDate.value = defaults.startDate;
   form.elements.endDate.value = defaults.endDate;
+  form.elements.startTime.value = defaults.startTime;
+  form.elements.endTime.value = defaults.endTime;
+  document.querySelector("#event-timezone").innerHTML = buildTimezoneOptions(
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  );
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -104,7 +122,10 @@ function renderLanding() {
       body: JSON.stringify({
         title: formData.get("title"),
         startDate: formData.get("startDate"),
+        startTime: formData.get("startTime"),
         endDate: formData.get("endDate"),
+        endTime: formData.get("endTime"),
+        eventTimezone: formData.get("eventTimezone"),
       }),
     });
     const payload = await response.json();
@@ -273,9 +294,16 @@ function renderEvent() {
 
   const eventData = state.event;
   document.querySelector("#event-title").textContent = eventData.title;
-  document.querySelector("#event-range").textContent = `${formatDateOnly(
-    eventData.startDate
-  )} - ${formatDateOnly(eventData.endDate)}`;
+  document.querySelector("#event-range").textContent = `${formatDateTimeInTimezone(
+    eventData.startUtc || `${eventData.startDate}T00:00:00Z`,
+    eventData.eventTimezone || "UTC"
+  )} - ${formatDateTimeInTimezone(
+    eventData.endUtc || `${eventData.endDate}T00:00:00Z`,
+    eventData.eventTimezone || "UTC"
+  )}`;
+  document.querySelector("#event-timezone-label").textContent = `Event timezone: ${
+    eventData.eventTimezone || "UTC"
+  }`;
   document.querySelector("#participant-count").textContent = `${eventData.participants.length} participant(s)`;
 
   const participantTimezoneSelect = document.querySelector("#participant-timezone");

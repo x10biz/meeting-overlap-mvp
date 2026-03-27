@@ -17,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = BASE_DIR / "public"
 DB_PATH = Path(os.environ.get("DB_PATH", str(BASE_DIR / "data.sqlite3")))
 SLOT_MINUTES = 30
+TIME_INPUT_MINUTES = 15
 
 
 def utc_now_iso() -> str:
@@ -56,6 +57,9 @@ def ensure_db() -> None:
             title TEXT NOT NULL,
             start_date TEXT NOT NULL,
             end_date TEXT NOT NULL,
+            start_utc TEXT,
+            end_utc TEXT,
+            event_timezone TEXT,
             created_at TEXT NOT NULL
         );
 
@@ -75,6 +79,15 @@ def ensure_db() -> None:
         );
         """
     )
+    existing_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(events)").fetchall()
+    }
+    if "start_utc" not in existing_columns:
+        conn.execute("ALTER TABLE events ADD COLUMN start_utc TEXT")
+    if "end_utc" not in existing_columns:
+        conn.execute("ALTER TABLE events ADD COLUMN end_utc TEXT")
+    if "event_timezone" not in existing_columns:
+        conn.execute("ALTER TABLE events ADD COLUMN event_timezone TEXT")
     conn.commit()
     conn.close()
 
@@ -86,14 +99,43 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
-def parse_event_dates(start_date_str: str, end_date_str: str) -> tuple[date, date]:
-    start_date = date.fromisoformat(start_date_str)
-    end_date = date.fromisoformat(end_date_str)
-    if end_date < start_date:
-        raise ValueError("End date must be on or after start date.")
-    if (end_date - start_date).days > 30:
+def parse_event_window(
+    start_date_str: str,
+    start_time_str: str,
+    end_date_str: str,
+    end_time_str: str,
+    timezone_name: str,
+) -> tuple[date, date, datetime, datetime]:
+    try:
+        tz = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError("Unknown event timezone.") from exc
+
+    try:
+        start_date = date.fromisoformat(start_date_str)
+        end_date = date.fromisoformat(end_date_str)
+        start_time_value = time.fromisoformat(start_time_str)
+        end_time_value = time.fromisoformat(end_time_str)
+    except ValueError as exc:
+        raise ValueError("Invalid event date or time.") from exc
+
+    if start_time_value.minute not in {0, 15, 30, 45} or end_time_value.minute not in {
+        0,
+        15,
+        30,
+        45,
+    }:
+        raise ValueError("Event times must use 15-minute increments.")
+
+    start_local = datetime.combine(start_date, start_time_value).replace(tzinfo=tz)
+    end_local = datetime.combine(end_date, end_time_value).replace(tzinfo=tz)
+
+    if end_local <= start_local:
+        raise ValueError("Event end must be after event start.")
+    if end_local.astimezone(UTC) - start_local.astimezone(UTC) > timedelta(days=31):
         raise ValueError("For MVP, event range must be 31 days or less.")
-    return start_date, end_date
+
+    return start_date, end_date, start_local.astimezone(UTC), end_local.astimezone(UTC)
 
 
 def parse_local_slot(local_value: str, timezone_name: str) -> datetime:
@@ -113,9 +155,20 @@ def parse_local_slot(local_value: str, timezone_name: str) -> datetime:
     return local_dt.replace(tzinfo=tz).astimezone(UTC)
 
 
+def legacy_event_window(start_date_str: str, end_date_str: str) -> tuple[datetime, datetime]:
+    return (
+        datetime.combine(date.fromisoformat(start_date_str), time.min, tzinfo=UTC),
+        datetime.combine(date.fromisoformat(end_date_str) + timedelta(days=1), time.min, tzinfo=UTC),
+    )
+
+
 def serialize_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] | None:
     event_row = conn.execute(
-        "SELECT id, title, start_date, end_date, created_at FROM events WHERE id = ?",
+        """
+        SELECT id, title, start_date, end_date, start_utc, end_utc, event_timezone, created_at
+        FROM events
+        WHERE id = ?
+        """,
         (event_id,),
     ).fetchone()
     if not event_row:
@@ -160,8 +213,16 @@ def serialize_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] |
         )
 
     summary = build_overlap_summary(
-        start_date=date.fromisoformat(event_row["start_date"]),
-        end_date=date.fromisoformat(event_row["end_date"]),
+        range_start_utc=(
+            datetime.fromisoformat(event_row["start_utc"])
+            if event_row["start_utc"]
+            else legacy_event_window(event_row["start_date"], event_row["end_date"])[0]
+        ),
+        range_end_utc=(
+            datetime.fromisoformat(event_row["end_utc"])
+            if event_row["end_utc"]
+            else legacy_event_window(event_row["start_date"], event_row["end_date"])[1]
+        ),
         participants=participants,
     )
 
@@ -170,6 +231,9 @@ def serialize_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] |
         "title": event_row["title"],
         "startDate": event_row["start_date"],
         "endDate": event_row["end_date"],
+        "startUtc": event_row["start_utc"],
+        "endUtc": event_row["end_utc"],
+        "eventTimezone": event_row["event_timezone"] or "UTC",
         "createdAt": event_row["created_at"],
         "participants": participants,
         "summary": summary,
@@ -177,18 +241,20 @@ def serialize_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] |
 
 
 def build_overlap_summary(
-    start_date: date, end_date: date, participants: list[dict[str, Any]]
+    range_start_utc: datetime,
+    range_end_utc: datetime,
+    participants: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    range_start = datetime.combine(start_date, time.min, tzinfo=UTC)
-    range_end = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
     slot_delta = timedelta(minutes=SLOT_MINUTES)
 
     slots: list[dict[str, Any]] = []
-    cursor = range_start
+    cursor = range_start_utc
     total_participants = len(participants)
 
-    while cursor < range_end:
+    while cursor < range_end_utc:
         slot_end = cursor + slot_delta
+        if slot_end > range_end_utc:
+            break
         available_names: list[str] = []
         available_ids: list[str] = []
 
@@ -225,14 +291,13 @@ def build_overlap_summary(
     }
 
 
-def get_event_window(start_date: str, end_date: str) -> tuple[datetime, datetime]:
-    event_start = datetime.combine(date.fromisoformat(start_date), time.min, tzinfo=UTC)
-    event_end = datetime.combine(
-        date.fromisoformat(end_date) + timedelta(days=1),
-        time.min,
-        tzinfo=UTC,
-    )
-    return event_start, event_end
+def get_event_window(event_row: sqlite3.Row) -> tuple[datetime, datetime]:
+    if event_row["start_utc"] and event_row["end_utc"]:
+        return (
+            datetime.fromisoformat(event_row["start_utc"]),
+            datetime.fromisoformat(event_row["end_utc"]),
+        )
+    return legacy_event_window(event_row["start_date"], event_row["end_date"])
 
 
 def serve_file(handler: BaseHTTPRequestHandler, file_path: Path, content_type: str) -> None:
@@ -319,10 +384,19 @@ class AppHandler(BaseHTTPRequestHandler):
     def handle_create_event(self, payload: dict[str, Any]) -> None:
         title = str(payload.get("title", "")).strip() or "Untitled event"
         start_date_str = str(payload.get("startDate", "")).strip()
+        start_time_str = str(payload.get("startTime", "")).strip()
         end_date_str = str(payload.get("endDate", "")).strip()
+        end_time_str = str(payload.get("endTime", "")).strip()
+        event_timezone = str(payload.get("eventTimezone", "")).strip()
 
         try:
-            parse_event_dates(start_date_str, end_date_str)
+            _, _, start_utc, end_utc = parse_event_window(
+                start_date_str,
+                start_time_str,
+                end_date_str,
+                end_time_str,
+                event_timezone,
+            )
         except ValueError as exc:
             json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
@@ -333,10 +407,21 @@ class AppHandler(BaseHTTPRequestHandler):
         with get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO events (id, title, start_date, end_date, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO events (
+                    id, title, start_date, end_date, start_utc, end_utc, event_timezone, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (event_id, title, start_date_str, end_date_str, created_at),
+                (
+                    event_id,
+                    title,
+                    start_date_str,
+                    end_date_str,
+                    start_utc.isoformat(),
+                    end_utc.isoformat(),
+                    event_timezone,
+                    created_at,
+                ),
             )
             conn.commit()
             event_payload = serialize_event(conn, event_id)
@@ -382,17 +467,18 @@ class AppHandler(BaseHTTPRequestHandler):
 
         with get_connection() as conn:
             event_row = conn.execute(
-                "SELECT start_date, end_date FROM events WHERE id = ?",
+                """
+                SELECT start_date, end_date, start_utc, end_utc, event_timezone
+                FROM events
+                WHERE id = ?
+                """,
                 (event_id,),
             ).fetchone()
             if not event_row:
                 json_response(self, HTTPStatus.NOT_FOUND, {"error": "Event not found"})
                 return
 
-            event_start, event_end = get_event_window(
-                event_row["start_date"],
-                event_row["end_date"],
-            )
+            event_start, event_end = get_event_window(event_row)
             for start_utc_raw, end_utc_raw in converted_slots:
                 start_utc = datetime.fromisoformat(start_utc_raw)
                 end_utc = datetime.fromisoformat(end_utc_raw)
