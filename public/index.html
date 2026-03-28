@@ -84,41 +84,29 @@
         <div class="event-header">
           <div>
             <p class="eyebrow" id="event-range"></p>
-            <h2 id="event-title"></h2>
+            <div class="event-title-row">
+              <h2 id="event-title"></h2>
+              <button
+                id="edit-event-button"
+                class="icon-button"
+                type="button"
+                aria-label="Edit event"
+                title="Edit event"
+              >
+                ✎
+              </button>
+            </div>
             <p class="muted" id="event-timezone-label"></p>
           </div>
           <button id="copy-link-button" class="secondary-button">Copy link</button>
         </div>
 
-        <section class="summary-grid">
-          <article class="panel inset-panel">
-            <h3>Participants</h3>
-            <p class="muted" id="participant-count"></p>
-            <div id="participant-list" class="participant-list"></div>
-          </article>
-
-          <article class="panel inset-panel">
-            <h3>Best overlap</h3>
-            <p class="muted">
-              Times below are shown in your selected display timezone.
-            </p>
-            <div class="toolbar">
-              <label class="inline-field">
-                <span>Show in</span>
-                <select id="display-timezone"></select>
-              </label>
-            </div>
-            <div id="best-slots" class="best-slots"></div>
-          </article>
-        </section>
-
-        <section class="panel inset-panel">
+        <section id="event-settings-panel" class="panel inset-panel hidden-panel">
           <div class="section-head">
             <div>
               <h3>Edit event</h3>
               <p class="muted">
-                Update the title, time window, or event timezone. All availability
-                continues to be checked against this event window.
+                Update the event window and timezone without leaving this page.
               </p>
             </div>
           </div>
@@ -151,8 +139,33 @@
               <span>Event timezone</span>
               <select name="eventTimezone" id="event-settings-timezone" required></select>
             </label>
-            <button type="submit" class="secondary-button">Save event settings</button>
+            <div class="edit-actions">
+              <button type="submit" class="secondary-button">Save event settings</button>
+              <button type="button" id="cancel-event-edit-button" class="ghost-button">Cancel</button>
+            </div>
           </form>
+        </section>
+
+        <section class="summary-grid">
+          <article class="panel inset-panel">
+            <h3>Participants</h3>
+            <p class="muted" id="participant-count"></p>
+            <div id="participant-list" class="participant-list"></div>
+          </article>
+
+          <article class="panel inset-panel">
+            <h3>Best overlap</h3>
+            <p class="muted">
+              Times below are shown in your selected display timezone.
+            </p>
+            <div class="toolbar">
+              <label class="inline-field">
+                <span>Show in</span>
+                <select id="display-timezone"></select>
+              </label>
+            </div>
+            <div id="best-slots" class="best-slots"></div>
+          </article>
         </section>
 
         <section class="panel inset-panel">

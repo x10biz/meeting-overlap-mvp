@@ -90,6 +90,25 @@ function getDateTimeParts(dateIso, timeZone) {
   };
 }
 
+function buildQuarterHourOptions(selectedValue = "") {
+  const options = [];
+  for (let hour = 0; hour < 24; hour += 1) {
+    for (let minute = 0; minute < 60; minute += 15) {
+      const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+      const labelDate = new Date(`2000-01-01T${value}:00Z`);
+      const label = new Intl.DateTimeFormat("en", {
+        timeZone: "UTC",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(labelDate);
+      options.push(
+        `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${escapeHtml(label)}</option>`
+      );
+    }
+  }
+  return options.join("");
+}
+
 function showStatus(message) {
   state.statusMessage = message;
   render();
@@ -177,14 +196,30 @@ function createSlotRow(defaults = {}) {
   const row = document.createElement("div");
   row.className = "slot-row";
   row.innerHTML = `
-    <label>
-      <span>Start</span>
-      <input type="datetime-local" name="startLocal" step="900" value="${escapeHtml(defaults.startLocal || "")}" required />
-    </label>
-    <label>
-      <span>End</span>
-      <input type="datetime-local" name="endLocal" step="900" value="${escapeHtml(defaults.endLocal || "")}" required />
-    </label>
+    <div class="slot-side">
+      <label>
+        <span>Start date</span>
+        <input type="date" name="startDate" value="${escapeHtml(defaults.startDate || "")}" required />
+      </label>
+      <label>
+        <span>Start time</span>
+        <select name="startTime" required>
+          ${buildQuarterHourOptions(defaults.startTime || "09:00")}
+        </select>
+      </label>
+    </div>
+    <div class="slot-side">
+      <label>
+        <span>End date</span>
+        <input type="date" name="endDate" value="${escapeHtml(defaults.endDate || "")}" required />
+      </label>
+      <label>
+        <span>End time</span>
+        <select name="endTime" required>
+          ${buildQuarterHourOptions(defaults.endTime || "10:00")}
+        </select>
+      </label>
+    </div>
     <button type="button" class="remove-button">Remove</button>
   `;
   row.querySelector(".remove-button").addEventListener("click", () => row.remove());
@@ -291,6 +326,14 @@ function wireEventSettingsForm(eventData) {
   form.elements.endDate.value = endParts.date;
   form.elements.endTime.value = endParts.time;
   document.querySelector("#event-settings-timezone").innerHTML = buildTimezoneOptions(timezone);
+  document.querySelector("#event-settings-panel").classList.add("hidden-panel");
+
+  document.querySelector("#edit-event-button").addEventListener("click", () => {
+    document.querySelector("#event-settings-panel").classList.toggle("hidden-panel");
+  });
+  document.querySelector("#cancel-event-edit-button").addEventListener("click", () => {
+    document.querySelector("#event-settings-panel").classList.add("hidden-panel");
+  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -318,6 +361,7 @@ function wireEventSettingsForm(eventData) {
 
     state.event = payload.event;
     state.statusMessage = "Event settings updated.";
+    document.querySelector("#event-settings-panel").classList.add("hidden-panel");
     render();
   });
 }
@@ -414,10 +458,34 @@ function renderEvent() {
   wireEventSettingsForm(eventData);
 
   const slotList = document.querySelector("#slot-list");
-  slotList.appendChild(createSlotRow());
+  const participantDefaultTimezone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const eventStartForParticipant = getDateTimeParts(
+    eventData.startUtc || `${eventData.startDate}T00:00:00Z`,
+    participantDefaultTimezone
+  );
+  const eventEndForParticipant = getDateTimeParts(
+    eventData.endUtc || `${eventData.endDate}T00:00:00Z`,
+    participantDefaultTimezone
+  );
+  slotList.appendChild(
+    createSlotRow({
+      startDate: eventStartForParticipant.date,
+      startTime: eventStartForParticipant.time,
+      endDate: eventEndForParticipant.date,
+      endTime: eventEndForParticipant.time,
+    })
+  );
 
   document.querySelector("#add-slot-button").addEventListener("click", () => {
-    slotList.appendChild(createSlotRow());
+    slotList.appendChild(
+      createSlotRow({
+        startDate: eventStartForParticipant.date,
+        startTime: eventStartForParticipant.time,
+        endDate: eventEndForParticipant.date,
+        endTime: eventEndForParticipant.time,
+      })
+    );
   });
 
   document.querySelector("#participant-form").addEventListener("submit", async (event) => {
@@ -426,8 +494,8 @@ function renderEvent() {
     const formData = new FormData(form);
     const rows = Array.from(slotList.querySelectorAll(".slot-row"));
     const slots = rows.map((row) => ({
-      startLocal: row.querySelector('input[name="startLocal"]').value,
-      endLocal: row.querySelector('input[name="endLocal"]').value,
+      startLocal: `${row.querySelector('input[name="startDate"]').value}T${row.querySelector('select[name="startTime"]').value}`,
+      endLocal: `${row.querySelector('input[name="endDate"]').value}T${row.querySelector('select[name="endTime"]').value}`,
     }));
 
     showStatus("Saving availability...");

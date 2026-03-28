@@ -175,6 +175,34 @@ button:hover {
   justify-content: space-between;
 }
 
+.event-title-row,
+.edit-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.event-title-row h2 {
+  margin: 0;
+}
+
+.icon-button,
+.ghost-button {
+  border-radius: 999px;
+  padding: 10px 14px;
+}
+
+.icon-button {
+  background: rgba(31, 122, 95, 0.1);
+  color: var(--accent-strong);
+  min-width: 42px;
+}
+
+.ghost-button {
+  background: rgba(31, 28, 22, 0.06);
+  color: var(--text);
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -216,6 +244,16 @@ button:hover {
   grid-template-columns: 1fr 1fr auto;
   gap: 10px;
   padding: 12px;
+}
+
+.slot-side {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hidden-panel {
+  display: none;
 }
 
 .remove-button {
@@ -301,6 +339,14 @@ button:hover {
   .slot-row,
   .field-grid {
     grid-template-columns: 1fr;
+  }
+
+  .slot-side,
+  .event-title-row,
+  .edit-actions {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .event-header,
