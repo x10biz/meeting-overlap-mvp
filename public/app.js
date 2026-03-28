@@ -137,6 +137,30 @@ function buildParticipantSlotDefaults(eventData, participantTimezone) {
   };
 }
 
+function attachDatePickerBehavior(root = document) {
+  const dateInputs = root.querySelectorAll('input[type="date"]');
+  dateInputs.forEach((input) => {
+    if (input.dataset.pickerBound === "true") {
+      return;
+    }
+
+    input.dataset.pickerBound = "true";
+    input.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "mouse" && event.pointerType !== "touch") {
+        return;
+      }
+
+      if (typeof input.showPicker !== "function") {
+        return;
+      }
+
+      event.preventDefault();
+      input.focus();
+      input.showPicker();
+    });
+  });
+}
+
 function showStatus(message) {
   state.statusMessage = message;
   render();
@@ -272,6 +296,7 @@ function getUpcomingWeekRange() {
 function renderLanding() {
   appRoot.innerHTML = buildStatusBanner();
   appRoot.appendChild(landingTemplate.content.cloneNode(true));
+  attachDatePickerBehavior(appRoot);
 
   const form = document.querySelector("#create-event-form");
   const defaults = getUpcomingWeekRange();
@@ -544,6 +569,7 @@ function buildParticipantList(eventData, timeZone) {
 function renderEvent() {
   appRoot.innerHTML = buildStatusBanner();
   appRoot.appendChild(eventTemplate.content.cloneNode(true));
+  attachDatePickerBehavior(appRoot);
 
   const eventData = state.event;
   document.querySelector("#event-title").textContent = eventData.title;
