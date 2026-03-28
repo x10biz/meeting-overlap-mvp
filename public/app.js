@@ -19,6 +19,7 @@ const state = {
   displayTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   statusMessage: "",
   routeEventId: null,
+  shareBase: null,
 };
 
 const EMBED_EVENT = "meeting-overlap";
@@ -186,15 +187,21 @@ function getRouteEventId() {
 }
 
 function getParentPageBase() {
+  if (state.shareBase) {
+    return state.shareBase;
+  }
+
   const shareBase = new URLSearchParams(window.location.search).get("shareBase");
   if (shareBase) {
+    state.shareBase = shareBase;
     return shareBase;
   }
 
   if (isEmbedded() && document.referrer) {
     try {
       const referrerUrl = new URL(document.referrer);
-      return `${referrerUrl.origin}${referrerUrl.pathname}`;
+      state.shareBase = `${referrerUrl.origin}${referrerUrl.pathname}`;
+      return state.shareBase;
     } catch (_error) {
       return null;
     }
@@ -706,8 +713,21 @@ function render() {
 }
 
 window.addEventListener("message", async (event) => {
-  if (!event?.data || event.data.type !== `${EMBED_EVENT}:set-event`) {
+  if (!event?.data) {
     return;
+  }
+
+  if (event.data.type === `${EMBED_EVENT}:context` && event.data.shareBase) {
+    state.shareBase = event.data.shareBase;
+    return;
+  }
+
+  if (event.data.type !== `${EMBED_EVENT}:set-event`) {
+    return;
+  }
+
+  if (event.data.shareBase) {
+    state.shareBase = event.data.shareBase;
   }
 
   const eventId = event.data.eventId;
