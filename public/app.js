@@ -18,7 +18,10 @@ const state = {
   event: null,
   displayTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   statusMessage: "",
+  routeEventId: null,
 };
+
+const EMBED_EVENT = "meeting-overlap";
 
 function getSupportedTimezones() {
   if (typeof Intl.supportedValuesOf === "function") {
@@ -139,6 +142,77 @@ function showStatus(message) {
   render();
 }
 
+function isEmbedded() {
+  return window.self !== window.top;
+}
+
+function getRouteEventId() {
+  const queryEventId = new URLSearchParams(window.location.search).get("event");
+  if (queryEventId) {
+    return queryEventId;
+  }
+
+  if (window.location.pathname.startsWith("/events/")) {
+    return window.location.pathname.split("/")[2] || null;
+  }
+
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+  const hashParams = new URLSearchParams(hash);
+  return hashParams.get("event");
+}
+
+function getParentPageBase() {
+  const shareBase = new URLSearchParams(window.location.search).get("shareBase");
+  if (shareBase) {
+    return shareBase;
+  }
+
+  if (isEmbedded() && document.referrer) {
+    try {
+      const referrerUrl = new URL(document.referrer);
+      return `${referrerUrl.origin}${referrerUrl.pathname}`;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function buildShareUrl(eventId) {
+  const parentBase = getParentPageBase();
+  if (parentBase) {
+    return `${parentBase}?event=${encodeURIComponent(eventId)}`;
+  }
+  return `${window.location.origin}/events/${encodeURIComponent(eventId)}`;
+}
+
+function notifyParentNavigation(eventId) {
+  if (!isEmbedded()) {
+    return;
+  }
+
+  window.parent.postMessage(
+    {
+      type: `${EMBED_EVENT}:navigate`,
+      eventId,
+      shareUrl: buildShareUrl(eventId),
+    },
+    "*"
+  );
+}
+
+function applyEventRoute(eventId) {
+  state.routeEventId = eventId;
+  if (isEmbedded()) {
+    notifyParentNavigation(eventId);
+    history.replaceState({ eventId }, "", `/?event=${encodeURIComponent(eventId)}`);
+    return;
+  }
+
+  history.pushState({ eventId }, "", `/events/${encodeURIComponent(eventId)}`);
+}
+
 function buildStatusBanner() {
   if (!state.statusMessage) {
     return "";
@@ -202,7 +276,10 @@ function renderLanding() {
     }
 
     const eventId = payload.event.id;
-    window.location.href = `/events/${eventId}`;
+    state.event = payload.event;
+    state.statusMessage = "Event created.";
+    applyEventRoute(eventId);
+    renderEvent();
   });
 }
 
@@ -476,7 +553,7 @@ function renderEvent() {
   );
 
   document.querySelector("#copy-link-button").addEventListener("click", async () => {
-    await navigator.clipboard.writeText(window.location.href);
+    await navigator.clipboard.writeText(buildShareUrl(eventData.id));
     showStatus("Share link copied.");
   });
 
@@ -540,34 +617,56 @@ async function fetchEvent(eventId) {
 }
 
 async function renderFromRoute() {
-  const path = window.location.pathname;
-  if (path === "/") {
+  const eventId = getRouteEventId();
+  if (!eventId) {
     renderLanding();
     return;
   }
 
-  if (path.startsWith("/events/")) {
-    appRoot.innerHTML = `<div class="status-banner">Loading event...</div>`;
-    try {
-      const eventId = path.split("/")[2];
-      state.event = await fetchEvent(eventId);
-      renderEvent();
-    } catch (error) {
-      state.statusMessage = error.message;
-      renderLanding();
-    }
-    return;
+  appRoot.innerHTML = `<div class="status-banner">Loading event...</div>`;
+  try {
+    state.routeEventId = eventId;
+    state.event = await fetchEvent(eventId);
+    renderEvent();
+  } catch (error) {
+    state.statusMessage = error.message;
+    renderLanding();
   }
-
-  renderLanding();
 }
 
 function render() {
-  if (state.event && window.location.pathname.startsWith("/events/")) {
+  if (state.event && state.routeEventId) {
     renderEvent();
     return;
   }
   renderLanding();
 }
+
+window.addEventListener("message", async (event) => {
+  if (!event?.data || event.data.type !== `${EMBED_EVENT}:set-event`) {
+    return;
+  }
+
+  const eventId = event.data.eventId;
+  if (!eventId) {
+    return;
+  }
+
+  history.replaceState({ eventId }, "", `/?event=${encodeURIComponent(eventId)}`);
+  state.routeEventId = eventId;
+  appRoot.innerHTML = `<div class="status-banner">Loading event...</div>`;
+  try {
+    state.event = await fetchEvent(eventId);
+    renderEvent();
+  } catch (error) {
+    state.statusMessage = error.message;
+    renderLanding();
+  }
+});
+
+window.addEventListener("popstate", () => {
+  state.routeEventId = getRouteEventId();
+  renderFromRoute();
+});
 
 renderFromRoute();
