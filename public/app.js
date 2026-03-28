@@ -187,6 +187,38 @@ function buildShareUrl(eventId) {
   return `${window.location.origin}/events/${encodeURIComponent(eventId)}`;
 }
 
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_error) {
+      // Fallback below for iframe / permissions edge cases.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  textarea.style.top = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch (_error) {
+    copied = false;
+  }
+
+  document.body.removeChild(textarea);
+  return copied;
+}
+
 function notifyParentNavigation(eventId) {
   if (!isEmbedded()) {
     return;
@@ -553,8 +585,13 @@ function renderEvent() {
   );
 
   document.querySelector("#copy-link-button").addEventListener("click", async () => {
-    await navigator.clipboard.writeText(buildShareUrl(eventData.id));
-    showStatus("Share link copied.");
+    const shareUrl = buildShareUrl(eventData.id);
+    const copied = await copyText(shareUrl);
+    if (copied) {
+      showStatus("Share link copied.");
+      return;
+    }
+    showStatus(`Copy failed. Use this link manually: ${shareUrl}`);
   });
 
   wireEventSettingsForm(eventData);
