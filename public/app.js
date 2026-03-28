@@ -125,9 +125,10 @@ function buildQuarterHourOptions(selectedValue = "") {
 }
 
 function buildParticipantSlotDefaults(eventData, participantTimezone) {
+  const effectiveTimezone = eventData.eventTimezone || participantTimezone || "UTC";
   const start = getDateTimeParts(
     eventData.startUtc || `${eventData.startDate}T00:00:00Z`,
-    participantTimezone
+    effectiveTimezone
   );
   const end = shiftLocalDateTime(start.date, start.time, 60);
   return {
@@ -165,6 +166,14 @@ function attachDatePickerBehavior(root = document) {
 function showStatus(message) {
   state.statusMessage = message;
   render();
+}
+
+function setStatusBanner(message) {
+  state.statusMessage = message;
+  const existingBanner = document.querySelector(".status-banner");
+  if (existingBanner) {
+    existingBanner.textContent = message;
+  }
 }
 
 function isEmbedded() {
@@ -398,8 +407,9 @@ function buildHeatmap(eventData, timeZone) {
     return `<div class="empty-state">No slots available yet.</div>`;
   }
 
+  const heatmapTimezone = eventData.eventTimezone || timeZone || "UTC";
   const dayFormatter = new Intl.DateTimeFormat("en", {
-    timeZone,
+    timeZone: heatmapTimezone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -416,7 +426,7 @@ function buildHeatmap(eventData, timeZone) {
   for (const slot of grid) {
     const start = new Date(slot.startUtc);
     const dayKey = dayFormatter.format(start);
-    const parts = getDateTimeParts(slot.startUtc, timeZone);
+    const parts = getDateTimeParts(slot.startUtc, heatmapTimezone);
     slotMap.set(`${dayKey}__${parts.time}`, slot);
   }
 
@@ -653,7 +663,7 @@ function renderEvent() {
       endLocal: `${row.querySelector('input[name="endDate"]').value}T${row.querySelector('select[name="endTime"]').value}`,
     }));
 
-    showStatus("Saving availability...");
+    setStatusBanner("Saving availability...");
 
     const response = await fetch(`/api/events/${eventData.id}/participants`, {
       method: "POST",
@@ -667,7 +677,7 @@ function renderEvent() {
 
     const payload = await response.json();
     if (!response.ok) {
-      showStatus(payload.error || "Unable to save availability.");
+      setStatusBanner(payload.error || "Unable to save availability.");
       return;
     }
 
