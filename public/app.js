@@ -105,6 +105,26 @@ function shiftLocalDateTime(dateValue, timeValue, minutesToAdd) {
   };
 }
 
+function addDaysToDateString(dateValue, daysToAdd) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const base = new Date(Date.UTC(year, month - 1, day));
+  base.setUTCDate(base.getUTCDate() + daysToAdd);
+  return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    base.getUTCDate()
+  ).padStart(2, "0")}`;
+}
+
+function formatEventLocalDateLabel(dateValue, timeZone) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const safeUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  return new Intl.DateTimeFormat("en", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(safeUtc);
+}
+
 function buildQuarterHourOptions(selectedValue = "") {
   const options = [];
   for (let hour = 0; hour < 24; hour += 1) {
@@ -408,24 +428,19 @@ function buildHeatmap(eventData, timeZone) {
   }
 
   const heatmapTimezone = eventData.eventTimezone || timeZone || "UTC";
-  const dayFormatter = new Intl.DateTimeFormat("en", {
-    timeZone: heatmapTimezone,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
   const columns = [];
-  const dayCursor = new Date(`${eventData.startDate}T00:00:00Z`);
-  const finalDay = new Date(`${eventData.endDate}T00:00:00Z`);
-  while (dayCursor <= finalDay) {
-    columns.push(dayFormatter.format(dayCursor));
-    dayCursor.setUTCDate(dayCursor.getUTCDate() + 1);
+  let cursorDate = eventData.startDate;
+  while (cursorDate <= eventData.endDate) {
+    columns.push(formatEventLocalDateLabel(cursorDate, heatmapTimezone));
+    cursorDate = addDaysToDateString(cursorDate, 1);
   }
 
   const slotMap = new Map();
   for (const slot of grid) {
-    const start = new Date(slot.startUtc);
-    const dayKey = dayFormatter.format(start);
+    const dayKey = formatEventLocalDateLabel(
+      getDateTimeParts(slot.startUtc, heatmapTimezone).date,
+      heatmapTimezone
+    );
     const parts = getDateTimeParts(slot.startUtc, heatmapTimezone);
     slotMap.set(`${dayKey}__${parts.time}`, slot);
   }
