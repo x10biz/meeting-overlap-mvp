@@ -155,6 +155,17 @@ def parse_local_slot(local_value: str, timezone_name: str) -> datetime:
     return local_dt.replace(tzinfo=tz).astimezone(UTC)
 
 
+def coerce_event_update_payload(payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "title": str(payload.get("title", "")).strip() or "Untitled event",
+        "startDate": str(payload.get("startDate", "")).strip(),
+        "startTime": str(payload.get("startTime", "")).strip(),
+        "endDate": str(payload.get("endDate", "")).strip(),
+        "endTime": str(payload.get("endTime", "")).strip(),
+        "eventTimezone": str(payload.get("eventTimezone", "")).strip(),
+    }
+
+
 def legacy_event_window(start_date_str: str, end_date_str: str) -> tuple[datetime, datetime]:
     return (
         datetime.combine(date.fromisoformat(start_date_str), time.min, tzinfo=UTC),
@@ -381,21 +392,33 @@ class AppHandler(BaseHTTPRequestHandler):
 
         json_response(self, HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
+    def do_PUT(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        try:
+            payload = read_json(self)
+        except json.JSONDecodeError:
+            json_response(self, HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON"})
+            return
+
+        if path.startswith("/api/events/"):
+            event_id = path.removeprefix("/api/events/")
+            self.handle_update_event(event_id, payload)
+            return
+
+        json_response(self, HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
     def handle_create_event(self, payload: dict[str, Any]) -> None:
-        title = str(payload.get("title", "")).strip() or "Untitled event"
-        start_date_str = str(payload.get("startDate", "")).strip()
-        start_time_str = str(payload.get("startTime", "")).strip()
-        end_date_str = str(payload.get("endDate", "")).strip()
-        end_time_str = str(payload.get("endTime", "")).strip()
-        event_timezone = str(payload.get("eventTimezone", "")).strip()
+        event_input = coerce_event_update_payload(payload)
 
         try:
             _, _, start_utc, end_utc = parse_event_window(
-                start_date_str,
-                start_time_str,
-                end_date_str,
-                end_time_str,
-                event_timezone,
+                event_input["startDate"],
+                event_input["startTime"],
+                event_input["endDate"],
+                event_input["endTime"],
+                event_input["eventTimezone"],
             )
         except ValueError as exc:
             json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
@@ -414,12 +437,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 """,
                 (
                     event_id,
-                    title,
-                    start_date_str,
-                    end_date_str,
+                    event_input["title"],
+                    event_input["startDate"],
+                    event_input["endDate"],
                     start_utc.isoformat(),
                     end_utc.isoformat(),
-                    event_timezone,
+                    event_input["eventTimezone"],
                     created_at,
                 ),
             )
@@ -431,6 +454,89 @@ class AppHandler(BaseHTTPRequestHandler):
             HTTPStatus.CREATED,
             {"event": event_payload, "shareUrl": f"/events/{event_id}"},
         )
+
+    def handle_update_event(self, event_id: str, payload: dict[str, Any]) -> None:
+        event_input = coerce_event_update_payload(payload)
+
+        try:
+            _, _, start_utc, end_utc = parse_event_window(
+                event_input["startDate"],
+                event_input["startTime"],
+                event_input["endDate"],
+                event_input["endTime"],
+                event_input["eventTimezone"],
+            )
+        except ValueError as exc:
+            json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+
+        with get_connection() as conn:
+            existing_event = conn.execute(
+                """
+                SELECT id
+                FROM events
+                WHERE id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+            if not existing_event:
+                json_response(self, HTTPStatus.NOT_FOUND, {"error": "Event not found"})
+                return
+
+            overlapping_slots = conn.execute(
+                """
+                SELECT availability_slots.id
+                FROM availability_slots
+                JOIN participants ON participants.id = availability_slots.participant_id
+                WHERE participants.event_id = ?
+                  AND (availability_slots.start_utc < ? AND availability_slots.end_utc > ?)
+                LIMIT 1
+                """,
+                (event_id, start_utc.isoformat(), end_utc.isoformat()),
+            ).fetchone()
+            if overlapping_slots is None:
+                participant_count = conn.execute(
+                    "SELECT COUNT(*) FROM participants WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()[0]
+                if participant_count > 0:
+                    json_response(
+                        self,
+                        HTTPStatus.BAD_REQUEST,
+                        {
+                            "error": (
+                                "Updated event window would exclude all saved participant availability. "
+                                "Please widen the event range or clear participant data first."
+                            )
+                        },
+                    )
+                    return
+
+            conn.execute(
+                """
+                UPDATE events
+                SET title = ?,
+                    start_date = ?,
+                    end_date = ?,
+                    start_utc = ?,
+                    end_utc = ?,
+                    event_timezone = ?
+                WHERE id = ?
+                """,
+                (
+                    event_input["title"],
+                    event_input["startDate"],
+                    event_input["endDate"],
+                    start_utc.isoformat(),
+                    end_utc.isoformat(),
+                    event_input["eventTimezone"],
+                    event_id,
+                ),
+            )
+            conn.commit()
+            event_payload = serialize_event(conn, event_id)
+
+        json_response(self, HTTPStatus.OK, {"event": event_payload})
 
     def handle_add_participant(self, event_id: str, payload: dict[str, Any]) -> None:
         name = str(payload.get("name", "")).strip()

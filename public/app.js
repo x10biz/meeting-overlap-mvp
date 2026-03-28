@@ -68,6 +68,28 @@ function formatDateTimeInTimezone(dateIso, timeZone) {
   }).format(new Date(dateIso));
 }
 
+function getDateTimeParts(dateIso, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(new Date(dateIso))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+  };
+}
+
 function showStatus(message) {
   state.statusMessage = message;
   render();
@@ -157,11 +179,11 @@ function createSlotRow(defaults = {}) {
   row.innerHTML = `
     <label>
       <span>Start</span>
-      <input type="datetime-local" name="startLocal" value="${escapeHtml(defaults.startLocal || "")}" required />
+      <input type="datetime-local" name="startLocal" step="900" value="${escapeHtml(defaults.startLocal || "")}" required />
     </label>
     <label>
       <span>End</span>
-      <input type="datetime-local" name="endLocal" value="${escapeHtml(defaults.endLocal || "")}" required />
+      <input type="datetime-local" name="endLocal" step="900" value="${escapeHtml(defaults.endLocal || "")}" required />
     </label>
     <button type="button" class="remove-button">Remove</button>
   `;
@@ -181,46 +203,50 @@ function buildHeatmap(eventData, timeZone) {
     month: "short",
     day: "numeric",
   });
-  const timeFormatter = new Intl.DateTimeFormat("en", {
-    timeZone,
-    hour: "numeric",
-    minute: "2-digit",
-  });
-
   const columns = [];
-  const byTime = new Map();
+  const dayCursor = new Date(`${eventData.startDate}T00:00:00Z`);
+  const finalDay = new Date(`${eventData.endDate}T00:00:00Z`);
+  while (dayCursor <= finalDay) {
+    columns.push(dayFormatter.format(dayCursor));
+    dayCursor.setUTCDate(dayCursor.getUTCDate() + 1);
+  }
 
+  const slotMap = new Map();
   for (const slot of grid) {
     const start = new Date(slot.startUtc);
     const dayKey = dayFormatter.format(start);
-    const timeKey = timeFormatter.format(start);
-
-    if (!columns.includes(dayKey)) {
-      columns.push(dayKey);
-    }
-    if (!byTime.has(timeKey)) {
-      byTime.set(timeKey, {});
-    }
-    byTime.get(timeKey)[dayKey] = slot;
+    const parts = getDateTimeParts(slot.startUtc, timeZone);
+    slotMap.set(`${dayKey}__${parts.time}`, slot);
   }
 
-  const rowsHtml = Array.from(byTime.entries())
-    .map(([timeKey, dayMap]) => {
+  const rowTimes = [];
+  for (let hour = 0; hour < 24; hour += 1) {
+    for (let minute = 0; minute < 60; minute += eventData.summary.slotMinutes) {
+      rowTimes.push(`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+    }
+  }
+
+  const rowsHtml = rowTimes
+    .map((timeKey) => {
+      const labelDate = new Date(`2000-01-01T${timeKey}:00Z`);
+      const label = new Intl.DateTimeFormat("en", {
+        timeZone: "UTC",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(labelDate);
+
       const cells = columns
         .map((dayKey) => {
-          const slot = dayMap[dayKey];
-          if (!slot) {
-            return `<div class="heatmap-cell"></div>`;
-          }
+          const slot = slotMap.get(`${dayKey}__${timeKey}`);
           const total = Math.max(eventData.summary.totalParticipants, 1);
-          const ratio = slot.availableCount / total;
-          const bg = `rgba(31, 122, 95, ${Math.max(0.08, ratio * 0.95)})`;
-          const names = slot.participantNames.length
+          const ratio = slot ? slot.availableCount / total : 0;
+          const bg = `rgba(31, 122, 95, ${Math.max(0.04, ratio * 0.95)})`;
+          const names = slot?.participantNames?.length
             ? slot.participantNames.join(", ")
-            : "Nobody yet";
+            : "No overlap in this slot";
           return `
             <div class="heatmap-cell" style="background:${bg}">
-              <strong>${slot.availableCount}/${eventData.summary.totalParticipants || 0}</strong>
+              <strong>${slot ? slot.availableCount : 0}/${eventData.summary.totalParticipants || 0}</strong>
               <div class="heatmap-meta">${escapeHtml(names)}</div>
             </div>
           `;
@@ -228,7 +254,7 @@ function buildHeatmap(eventData, timeZone) {
         .join("");
 
       return `
-        <div class="heatmap-time">${escapeHtml(timeKey)}</div>
+        <div class="heatmap-time">${escapeHtml(label)}</div>
         ${cells}
       `;
     })
@@ -245,6 +271,55 @@ function buildHeatmap(eventData, timeZone) {
       ${rowsHtml}
     </div>
   `;
+}
+
+function wireEventSettingsForm(eventData) {
+  const form = document.querySelector("#event-settings-form");
+  const timezone = eventData.eventTimezone || "UTC";
+  const startParts = getDateTimeParts(
+    eventData.startUtc || `${eventData.startDate}T00:00:00Z`,
+    timezone
+  );
+  const endParts = getDateTimeParts(
+    eventData.endUtc || `${eventData.endDate}T00:00:00Z`,
+    timezone
+  );
+
+  form.elements.title.value = eventData.title;
+  form.elements.startDate.value = startParts.date;
+  form.elements.startTime.value = startParts.time;
+  form.elements.endDate.value = endParts.date;
+  form.elements.endTime.value = endParts.time;
+  document.querySelector("#event-settings-timezone").innerHTML = buildTimezoneOptions(timezone);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    showStatus("Saving event settings...");
+
+    const response = await fetch(`/api/events/${eventData.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: formData.get("title"),
+        startDate: formData.get("startDate"),
+        startTime: formData.get("startTime"),
+        endDate: formData.get("endDate"),
+        endTime: formData.get("endTime"),
+        eventTimezone: formData.get("eventTimezone"),
+      }),
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      showStatus(payload.error || "Unable to update event.");
+      return;
+    }
+
+    state.event = payload.event;
+    state.statusMessage = "Event settings updated.";
+    render();
+  });
 }
 
 function buildBestSlots(eventData, timeZone) {
@@ -335,6 +410,8 @@ function renderEvent() {
     await navigator.clipboard.writeText(window.location.href);
     showStatus("Share link copied.");
   });
+
+  wireEventSettingsForm(eventData);
 
   const slotList = document.querySelector("#slot-list");
   slotList.appendChild(createSlotRow());

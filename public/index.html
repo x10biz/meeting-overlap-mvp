@@ -115,6 +115,49 @@
         <section class="panel inset-panel">
           <div class="section-head">
             <div>
+              <h3>Edit event</h3>
+              <p class="muted">
+                Update the title, time window, or event timezone. All availability
+                continues to be checked against this event window.
+              </p>
+            </div>
+          </div>
+          <form id="event-settings-form" class="stack-form">
+            <label>
+              <span>Event name</span>
+              <input type="text" name="title" maxlength="100" required />
+            </label>
+            <div class="field-grid">
+              <label>
+                <span>Start date</span>
+                <input type="date" name="startDate" required />
+              </label>
+              <label>
+                <span>Start time</span>
+                <input type="time" name="startTime" step="900" required />
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>End date</span>
+                <input type="date" name="endDate" required />
+              </label>
+              <label>
+                <span>End time</span>
+                <input type="time" name="endTime" step="900" required />
+              </label>
+            </div>
+            <label>
+              <span>Event timezone</span>
+              <select name="eventTimezone" id="event-settings-timezone" required></select>
+            </label>
+            <button type="submit" class="secondary-button">Save event settings</button>
+          </form>
+        </section>
+
+        <section class="panel inset-panel">
+          <div class="section-head">
+            <div>
               <h3>Add yourself</h3>
               <p class="muted">
                 Add your name, pick your timezone, and enter as many available
