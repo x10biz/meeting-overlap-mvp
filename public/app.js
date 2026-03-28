@@ -90,6 +90,17 @@ function getDateTimeParts(dateIso, timeZone) {
   };
 }
 
+function shiftLocalDateTime(dateValue, timeValue, minutesToAdd) {
+  const base = new Date(`${dateValue}T${timeValue}:00`);
+  base.setMinutes(base.getMinutes() + minutesToAdd);
+  return {
+    date: `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(
+      base.getDate()
+    ).padStart(2, "0")}`,
+    time: `${String(base.getHours()).padStart(2, "0")}:${String(base.getMinutes()).padStart(2, "0")}`,
+  };
+}
+
 function buildQuarterHourOptions(selectedValue = "") {
   const options = [];
   for (let hour = 0; hour < 24; hour += 1) {
@@ -107,6 +118,20 @@ function buildQuarterHourOptions(selectedValue = "") {
     }
   }
   return options.join("");
+}
+
+function buildParticipantSlotDefaults(eventData, participantTimezone) {
+  const start = getDateTimeParts(
+    eventData.startUtc || `${eventData.startDate}T00:00:00Z`,
+    participantTimezone
+  );
+  const end = shiftLocalDateTime(start.date, start.time, 60);
+  return {
+    startDate: start.date,
+    startTime: start.time,
+    endDate: end.date,
+    endTime: end.time,
+  };
 }
 
 function showStatus(message) {
@@ -458,33 +483,16 @@ function renderEvent() {
   wireEventSettingsForm(eventData);
 
   const slotList = document.querySelector("#slot-list");
-  const participantDefaultTimezone =
-    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const eventStartForParticipant = getDateTimeParts(
-    eventData.startUtc || `${eventData.startDate}T00:00:00Z`,
-    participantDefaultTimezone
-  );
-  const eventEndForParticipant = getDateTimeParts(
-    eventData.endUtc || `${eventData.endDate}T00:00:00Z`,
-    participantDefaultTimezone
-  );
-  slotList.appendChild(
-    createSlotRow({
-      startDate: eventStartForParticipant.date,
-      startTime: eventStartForParticipant.time,
-      endDate: eventEndForParticipant.date,
-      endTime: eventEndForParticipant.time,
-    })
-  );
+  const getSelectedParticipantTimezone = () =>
+    document.querySelector("#participant-timezone").value ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone ||
+    "UTC";
+
+  slotList.appendChild(createSlotRow(buildParticipantSlotDefaults(eventData, getSelectedParticipantTimezone())));
 
   document.querySelector("#add-slot-button").addEventListener("click", () => {
     slotList.appendChild(
-      createSlotRow({
-        startDate: eventStartForParticipant.date,
-        startTime: eventStartForParticipant.time,
-        endDate: eventEndForParticipant.date,
-        endTime: eventEndForParticipant.time,
-      })
+      createSlotRow(buildParticipantSlotDefaults(eventData, getSelectedParticipantTimezone()))
     );
   });
 
